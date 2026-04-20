@@ -1,0 +1,43 @@
+name: Build and Deploy to Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - staging
+      skip_tests:
+        description: Skip tests for now
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  deploy:
+    name: Azure Deploy Stub
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show workflow context
+        run: |
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Environment: ${{ inputs.environment || 'production' }}"
+          echo "Skip tests: ${{ inputs.skip_tests }}"
+
+      - name: Azure placeholder
+        run: |
+          echo "This workflow is valid for GitHub Actions and now targets Azure."
+          echo "Next step: add Azure login, image build/push, and your Azure deploy target."
+          echo "Common Azure targets: App Service, Container Apps, AKS, or VM."
