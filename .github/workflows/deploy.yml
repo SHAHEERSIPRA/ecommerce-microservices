@@ -60,11 +60,17 @@ jobs:
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Removing old containers..."
+            echo "🧹 Cleaning old containers..."
             docker rm -f user-service product-service order-service frontend mongo || true
 
-            echo "📦 Starting MongoDB..."
-            docker run -d --name mongo -p 27017:27017 mongo:7
+            echo "🌐 Creating network..."
+            docker network create ecommerce-net || true
+
+            echo "📦 Starting MongoDB (internal only)..."
+            docker run -d \
+              --name mongo \
+              --network ecommerce-net \
+              mongo:7
 
             echo "⬇️ Pulling latest images..."
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
@@ -72,26 +78,35 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "🌐 Creating network..."
-            docker network create app-network || true
-
             echo "🚀 Running containers..."
 
-            docker run -d --name user-service --network app-network -p 4001:4001 \
+            docker run -d \
+              --name user-service \
+              --network ecommerce-net \
+              -p 4001:4001 \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
-            docker run -d --name product-service --network app-network -p 4002:4002 \
+            docker run -d \
+              --name product-service \
+              --network ecommerce-net \
+              -p 4002:4002 \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
-            docker run -d --name order-service --network app-network -p 4003:4003 \
+            docker run -d \
+              --name order-service \
+              --network ecommerce-net \
+              -p 4003:4003 \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
               -e USER_SERVICE_URL=http://user-service:4001 \
               -e PRODUCT_SERVICE_URL=http://product-service:4002 \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            docker run -d --name frontend --network app-network -p 3000:3000 \
+            docker run -d \
+              --name frontend \
+              --network ecommerce-net \
+              -p 3000:3000 \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
             echo "✅ Deployment successful!"
