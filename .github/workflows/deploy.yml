@@ -1,43 +1,71 @@
-name: Build and Deploy to Azure
+name: CI/CD Pipeline
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: Deployment environment
-        required: true
-        default: production
-        type: choice
-        options:
-          - production
-          - staging
-      skip_tests:
-        description: Skip tests for now
-        required: true
-        default: true
-        type: boolean
 
 jobs:
-  deploy:
-    name: Azure Deploy Stub
+  build-and-deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'production' }}
+    environment: Production
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Show workflow context
+      # 🔐 Login to ACR
+      - name: Login to ACR
         run: |
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Environment: ${{ inputs.environment || 'production' }}"
-          echo "Skip tests: ${{ inputs.skip_tests }}"
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
-      - name: Azure placeholder
+      # 🏗️ Build Images
+      - name: Build Images
         run: |
-          echo "This workflow is valid for GitHub Actions and now targets Azure."
-          echo "Next step: add Azure login, image build/push, and your Azure deploy target."
-          echo "Common Azure targets: App Service, Container Apps, AKS, or VM."
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
+
+      # 📤 Push Images
+      - name: Push Images
+        run: |
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+      # 🚀 Deploy to VM
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
+
+            docker rm -f user-service product-service order-service frontend || true
+            docker rm -f mongo || true
+
+            docker run -d --name mongo -p 27017:27017 mongo:7
+
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            docker run -d --name user-service -p 4001:4001 \
+              -e MONGO_URI=mongodb://mongo:27017/userdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+
+            docker run -d --name product-service -p 4002:4002 \
+              -e MONGO_URI=mongodb://mongo:27017/productdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+
+            docker run -d --name order-service -p 4003:4003 \
+              -e MONGO_URI=mongodb://mongo:27017/orderdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+
+            docker run -d --name frontend -p 3000:3000 \
+              ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
