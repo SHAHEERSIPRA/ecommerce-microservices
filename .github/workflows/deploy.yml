@@ -11,49 +11,69 @@ jobs:
     environment: Production
 
     steps:
+      # ─────────────────────────────
+      # 1. Checkout code
+      # ─────────────────────────────
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 🔐 Login to ACR
+      # ─────────────────────────────
+      # 2. Login to ACR (GitHub runner)
+      # ─────────────────────────────
       - name: Login to ACR
         run: |
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+            -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-      # 🏗️ Build Images
-      - name: Build Images
+      # ─────────────────────────────
+      # 3. Build Images
+      # ─────────────────────────────
+      - name: Build Docker Images
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
 
-      # 📤 Push Images
-      - name: Push Images
+      # ─────────────────────────────
+      # 4. Push Images to ACR
+      # ─────────────────────────────
+      - name: Push Docker Images
         run: |
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-      # 🚀 Deploy to VM
-      - name: Deploy to VM
+      # ─────────────────────────────
+      # 5. Deploy on VM (SSH)
+      # ─────────────────────────────
+      - name: Deploy to Azure VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
+            set -e
 
-            docker rm -f user-service product-service order-service frontend || true
-            docker rm -f mongo || true
+            echo "🔐 Logging into ACR..."
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+              -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
+            echo "🧹 Cleaning old containers..."
+            docker rm -f user-service product-service order-service frontend mongo || true
+
+            echo "📦 Starting MongoDB..."
             docker run -d --name mongo -p 27017:27017 mongo:7
 
+            echo "⬇️ Pulling latest images..."
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "🚀 Running containers..."
 
             docker run -d --name user-service -p 4001:4001 \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
@@ -69,3 +89,5 @@ jobs:
 
             docker run -d --name frontend -p 3000:3000 \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "✅ Deployment completed successfully"
