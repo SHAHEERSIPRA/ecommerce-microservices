@@ -5,10 +5,15 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment: Production
+
+    # IMPORTANT: must match GitHub Environment EXACT NAME
+    environment:
+      name: Production
 
     steps:
       # ─────────────────────────────
@@ -18,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ─────────────────────────────
-      # 2. Login to ACR (GitHub runner)
+      # 2. Login to Azure Container Registry (ACR)
       # ─────────────────────────────
       - name: Login to ACR
         run: |
@@ -26,9 +31,9 @@ jobs:
             -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
       # ─────────────────────────────
-      # 3. Build Images
+      # 3. Build Docker Images
       # ─────────────────────────────
-      - name: Build Docker Images
+      - name: Build Images
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
@@ -38,7 +43,7 @@ jobs:
       # ─────────────────────────────
       # 4. Push Images to ACR
       # ─────────────────────────────
-      - name: Push Docker Images
+      - name: Push Images
         run: |
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
@@ -46,14 +51,49 @@ jobs:
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
       # ─────────────────────────────
-      # 5. Deploy on VM (SSH)
+      # 5. Deploy to Azure VM via SSH
       # ─────────────────────────────
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1.0.3
         with:
-          debug: true
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          debug: true
           script: |
-            echo "SSH CONNECTED SUCCESSFULLY"
+            set -e
+
+            echo "🔐 Logging into ACR..."
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+              -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+
+            echo "🧹 Cleaning old containers..."
+            docker rm -f user-service product-service order-service frontend mongo || true
+
+            echo "📦 Starting MongoDB..."
+            docker run -d --name mongo -p 27017:27017 mongo:7
+
+            echo "⬇️ Pulling latest images..."
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "🚀 Running containers..."
+
+            docker run -d --name user-service -p 4001:4001 \
+              -e MONGO_URI=mongodb://mongo:27017/userdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+
+            docker run -d --name product-service -p 4002:4002 \
+              -e MONGO_URI=mongodb://mongo:27017/productdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+
+            docker run -d --name order-service -p 4003:4003 \
+              -e MONGO_URI=mongodb://mongo:27017/orderdb \
+              ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+
+            docker run -d --name frontend -p 3000:3000 \
+              ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "✅ Deployment completed successfully"
