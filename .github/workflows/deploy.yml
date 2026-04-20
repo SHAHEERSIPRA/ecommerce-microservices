@@ -1,38 +1,32 @@
-name: CI/CD Pipeline
+name: CI/CD Pipeline - Azure VM Deploy
 
 on:
   push:
     branches:
       - main
 
-  workflow_dispatch:
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-    # IMPORTANT: must match GitHub Environment EXACT NAME
-    environment:
-      name: Production
-
     steps:
-      # ─────────────────────────────
+      # =========================
       # 1. Checkout code
-      # ─────────────────────────────
+      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ─────────────────────────────
-      # 2. Login to Azure Container Registry (ACR)
-      # ─────────────────────────────
-      - name: Login to ACR
+      # =========================
+      # 2. Login to ACR
+      # =========================
+      - name: Login to Azure Container Registry
         run: |
           echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
-            -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+            -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
-      # ─────────────────────────────
+      # =========================
       # 3. Build Docker Images
-      # ─────────────────────────────
+      # =========================
       - name: Build Images
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
@@ -40,9 +34,9 @@ jobs:
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
 
-      # ─────────────────────────────
+      # =========================
       # 4. Push Images to ACR
-      # ─────────────────────────────
+      # =========================
       - name: Push Images
         run: |
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
@@ -50,16 +44,15 @@ jobs:
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-      # ─────────────────────────────
-      # 5. Deploy to Azure VM via SSH
-      # ─────────────────────────────
-      - name: Deploy to VM
+      # =========================
+      # 5. Deploy on Azure VM
+      # =========================
+      - name: Deploy to Azure VM via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          debug: true
           script: |
             set -e
 
@@ -67,7 +60,7 @@ jobs:
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Cleaning old containers..."
+            echo "🧹 Removing old containers..."
             docker rm -f user-service product-service order-service frontend mongo || true
 
             echo "📦 Starting MongoDB..."
@@ -79,21 +72,26 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
+            echo "🌐 Creating network..."
+            docker network create app-network || true
+
             echo "🚀 Running containers..."
 
-            docker run -d --name user-service -p 4001:4001 \
+            docker run -d --name user-service --network app-network -p 4001:4001 \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
-            docker run -d --name product-service -p 4002:4002 \
+            docker run -d --name product-service --network app-network -p 4002:4002 \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
-            docker run -d --name order-service -p 4003:4003 \
+            docker run -d --name order-service --network app-network -p 4003:4003 \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
+              -e USER_SERVICE_URL=http://user-service:4001 \
+              -e PRODUCT_SERVICE_URL=http://product-service:4002 \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            docker run -d --name frontend -p 3000:3000 \
+            docker run -d --name frontend --network app-network -p 3000:3000 \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "✅ Deployment completed successfully"
+            echo "✅ Deployment successful!"
