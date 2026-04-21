@@ -26,19 +26,31 @@ jobs:
 
       # =========================
       # 3. Build Docker Images
+      # (IMPORTANT: frontend gets build args here)
       # =========================
       - name: Build Images
         run: |
+          echo "🔨 Building backend services..."
+
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
+
+          echo "🔨 Building frontend with build-time envs..."
+
+          docker build \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
+            --build-arg NEXT_PUBLIC_USER_SERVICE_URL=${{ secrets.NEXT_PUBLIC_USER_SERVICE_URL }} \
+            --build-arg NEXT_PUBLIC_PRODUCT_SERVICE_URL=${{ secrets.NEXT_PUBLIC_PRODUCT_SERVICE_URL }} \
+            --build-arg NEXT_PUBLIC_ORDER_SERVICE_URL=${{ secrets.NEXT_PUBLIC_ORDER_SERVICE_URL }}
 
       # =========================
       # 4. Push Images to ACR
       # =========================
       - name: Push Images
         run: |
+          echo "📤 Pushing images to ACR..."
+
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
@@ -60,13 +72,13 @@ jobs:
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Cleaning old containers..."
+            echo "🧹 Removing old containers..."
             docker rm -f user-service product-service order-service frontend mongo || true
 
             echo "🌐 Creating network..."
             docker network create ecommerce-net || true
 
-            echo "📦 Starting MongoDB (internal only)..."
+            echo "📦 Starting MongoDB..."
             docker run -d \
               --name mongo \
               --network ecommerce-net \
