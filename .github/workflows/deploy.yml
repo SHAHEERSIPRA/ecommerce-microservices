@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy
+name: CI/CD Pipeline - Azure VM Deploy (Production Clean)
 
 on:
   push:
@@ -25,22 +25,31 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # =========================
-      # Build Images
+      # Build Images (NO CACHE IMPORTANT)
       # =========================
       - name: Build Docker Images
         run: |
           echo "🔨 Building backend services..."
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
-          echo "🔨 Building frontend (NGINX-based architecture)..."
-          docker build \
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
+
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
+
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
+
+          echo "🔨 Building frontend (NGINX API Gateway mode)..."
+
+          docker build --no-cache \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
             --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
 
           echo "🔨 Building NGINX..."
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
+
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
 
       # =========================
       # Push Images
@@ -67,14 +76,16 @@ jobs:
           script: |
             set -e
 
-            echo "🔐 Logging into ACR..."
+            echo "🔐 Login to ACR..."
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Removing old containers..."
-            docker rm -f user-service product-service order-service frontend nginx mongo || true
+            echo "🧹 HARD CLEAN (fix stale containers issue)"
 
-            echo "🌐 Creating Docker network..."
+            docker ps -aq | xargs -r docker rm -f || true
+            docker images -aq | xargs -r docker rmi -f || true
+
+            echo "🌐 Creating network..."
             docker network create ecommerce-net || true
 
             echo "📦 Starting MongoDB..."
@@ -90,7 +101,7 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "🚀 Running backend services (PRIVATE ONLY)"
+            echo "🚀 Running backend services (PRIVATE)"
 
             docker run -d \
               --name user-service \
@@ -110,17 +121,19 @@ jobs:
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            echo "🚀 Running frontend (NO PUBLIC PORT EXPOSED)"
+            echo "🚀 Running frontend (NO PUBLIC PORT)"
+
             docker run -d \
               --name frontend \
               --network ecommerce-net \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "🌐 Starting NGINX (ONLY PUBLIC ENTRY POINT)"
+            echo "🌐 Running NGINX (ONLY ENTRY POINT)"
+
             docker run -d \
               --name nginx \
               --network ecommerce-net \
               -p 80:80 \
               ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "✅ Deployment successful!"
+            echo "✅ Deployment SUCCESS!"
