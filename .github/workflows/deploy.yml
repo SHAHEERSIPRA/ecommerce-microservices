@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy (Production Stable)
+name: CI/CD Pipeline - Azure VM Deploy (Optimized Stable)
 
 on:
   push:
@@ -25,30 +25,30 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # =========================
-      # Build Images (NO CACHE + CLEAN ENV)
+      # Build Images (CACHE ENABLED FOR SPEED)
       # =========================
       - name: Build Docker Images
         run: |
           echo "🔨 Building backend services..."
 
-          docker build --no-cache \
+          docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
 
-          docker build --no-cache \
+          docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
 
-          docker build --no-cache \
+          docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
-          echo "🔨 Building frontend (NGINX API Gateway mode)..."
+          echo "🔨 Building frontend..."
 
-          docker build --no-cache \
+          docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
             --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
 
           echo "🔨 Building NGINX..."
 
-          docker build --no-cache \
+          docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
 
       # =========================
@@ -80,16 +80,11 @@ jobs:
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 SAFE CLEAN (avoid image lock issues)"
+            echo "🧹 Removing old containers only (SAFE)"
 
-            docker stop user-service product-service order-service frontend nginx mongo || true
-            docker rm user-service product-service order-service frontend nginx mongo || true
+            docker rm -f user-service product-service order-service frontend nginx mongo || true
 
-            echo "🧹 Removing unused containers/images safely..."
-            docker container prune -f || true
-            docker image prune -af || true
-
-            echo "🌐 Creating Docker network..."
+            echo "🌐 Creating network..."
             docker network create ecommerce-net || true
 
             echo "📦 Starting MongoDB..."
@@ -98,14 +93,14 @@ jobs:
               --network ecommerce-net \
               mongo:7
 
-            echo "⬇️ Pulling latest images..."
+            echo "⬇️ Pulling images..."
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "🚀 Running backend services (PRIVATE ONLY)"
+            echo "🚀 Starting backend services"
 
             docker run -d \
               --name user-service \
@@ -125,14 +120,14 @@ jobs:
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            echo "🚀 Running frontend (NO PUBLIC PORT)"
+            echo "🚀 Starting frontend"
 
             docker run -d \
               --name frontend \
               --network ecommerce-net \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "🌐 Running NGINX (ONLY ENTRY POINT)"
+            echo "🌐 Starting NGINX (ENTRY POINT)"
 
             docker run -d \
               --name nginx \
