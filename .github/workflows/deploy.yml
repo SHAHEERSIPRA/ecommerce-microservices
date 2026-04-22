@@ -10,56 +10,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # =========================
-      # 1. Checkout code
-      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
 
       # =========================
-      # 2. Login to ACR
+      # Login to ACR
       # =========================
-      - name: Login to Azure Container Registry
+      - name: Login to ACR
         run: |
           echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # =========================
-      # 3. Build Docker Images
-      # (IMPORTANT: frontend gets build args here)
+      # Build Images
       # =========================
       - name: Build Images
         run: |
-          echo "🔨 Building backend services..."
-
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
-          echo "🔨 Building frontend with build-time envs..."
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
 
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
-            --build-arg NEXT_PUBLIC_USER_SERVICE_URL=${{ secrets.NEXT_PUBLIC_USER_SERVICE_URL }} \
-            --build-arg NEXT_PUBLIC_PRODUCT_SERVICE_URL=${{ secrets.NEXT_PUBLIC_PRODUCT_SERVICE_URL }} \
-            --build-arg NEXT_PUBLIC_ORDER_SERVICE_URL=${{ secrets.NEXT_PUBLIC_ORDER_SERVICE_URL }}
+          # ⭐ NEW: NGINX
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
 
       # =========================
-      # 4. Push Images to ACR
+      # Push Images
       # =========================
       - name: Push Images
         run: |
-          echo "📤 Pushing images to ACR..."
-
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
       # =========================
-      # 5. Deploy on Azure VM
+      # Deploy to VM
       # =========================
-      - name: Deploy to Azure VM via SSH
+      - name: Deploy to Azure VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
@@ -68,57 +58,49 @@ jobs:
           script: |
             set -e
 
-            echo "🔐 Logging into ACR..."
+            echo "🔐 Login to ACR..."
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Removing old containers..."
-            docker rm -f user-service product-service order-service frontend mongo || true
+            echo "🧹 Cleaning old containers..."
+            docker rm -f user-service product-service order-service frontend nginx mongo || true
 
             echo "🌐 Creating network..."
             docker network create ecommerce-net || true
 
             echo "📦 Starting MongoDB..."
-            docker run -d \
-              --name mongo \
-              --network ecommerce-net \
-              mongo:7
+            docker run -d --name mongo --network ecommerce-net mongo:7
 
-            echo "⬇️ Pulling latest images..."
+            echo "⬇️ Pulling images..."
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "🚀 Running containers..."
+            echo "🚀 Running backend services (NO PUBLIC PORTS)"
 
-            docker run -d \
-              --name user-service \
-              --network ecommerce-net \
-              -p 4001:4001 \
+            docker run -d --name user-service --network ecommerce-net \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
-            docker run -d \
-              --name product-service \
-              --network ecommerce-net \
-              -p 4002:4002 \
+            docker run -d --name product-service --network ecommerce-net \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
-            docker run -d \
-              --name order-service \
-              --network ecommerce-net \
-              -p 4003:4003 \
+            docker run -d --name order-service --network ecommerce-net \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
-              -e USER_SERVICE_URL=http://user-service:4001 \
-              -e PRODUCT_SERVICE_URL=http://product-service:4002 \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            docker run -d \
-              --name frontend \
-              --network ecommerce-net \
-              -p 3000:3000 \
+            docker run -d --name frontend --network ecommerce-net \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "🌐 Starting NGINX (ONLY PUBLIC ENTRY POINT)"
+
+            docker run -d \
+              --name nginx \
+              --network ecommerce-net \
+              -p 80:80 \
+              ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
             echo "✅ Deployment successful!"
