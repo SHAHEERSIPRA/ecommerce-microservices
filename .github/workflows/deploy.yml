@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy (Production Clean)
+name: CI/CD Pipeline - Azure VM Deploy (Production Stable)
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # =========================
-      # Build Images (NO CACHE IMPORTANT)
+      # Build Images (NO CACHE + CLEAN ENV)
       # =========================
       - name: Build Docker Images
         run: |
@@ -80,12 +80,16 @@ jobs:
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 HARD CLEAN (fix stale containers issue)"
+            echo "🧹 SAFE CLEAN (avoid image lock issues)"
 
-            docker ps -aq | xargs -r docker rm -f || true
-            docker images -aq | xargs -r docker rmi -f || true
+            docker stop user-service product-service order-service frontend nginx mongo || true
+            docker rm user-service product-service order-service frontend nginx mongo || true
 
-            echo "🌐 Creating network..."
+            echo "🧹 Removing unused containers/images safely..."
+            docker container prune -f || true
+            docker image prune -af || true
+
+            echo "🌐 Creating Docker network..."
             docker network create ecommerce-net || true
 
             echo "📦 Starting MongoDB..."
@@ -101,7 +105,7 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "🚀 Running backend services (PRIVATE)"
+            echo "🚀 Running backend services (PRIVATE ONLY)"
 
             docker run -d \
               --name user-service \
