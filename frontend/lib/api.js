@@ -5,7 +5,7 @@ import axios from 'axios';
 // =========================
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://4.186.31.149/api';
+  'http://4.186.31.149';
 
 // =========================
 // AXIOS INSTANCES
