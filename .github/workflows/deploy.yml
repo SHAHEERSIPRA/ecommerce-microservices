@@ -29,31 +29,33 @@ jobs:
       # =========================
       - name: Build Docker Images
         run: |
+          echo "🔨 Building backend services..."
+
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
+          echo "🔨 Building frontend..."
           docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
             --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
-
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
 
       # =========================
       # Push Images
       # =========================
       - name: Push Images
         run: |
+          echo "📤 Pushing images..."
+
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
       # =========================
-      # Deploy to VM
+      # Deploy to Azure VM
       # =========================
-      - name: Deploy to Azure VM
+      - name: Deploy to VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
@@ -62,12 +64,12 @@ jobs:
           script: |
             set -e
 
-            echo "🔐 Login to ACR"
+            echo "🔐 Login to ACR..."
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Cleaning old containers..."
-            docker rm -f nginx frontend user-service product-service order-service mongo || true
+            echo "🧹 Removing old containers..."
+            docker rm -f frontend user-service product-service order-service mongo || true
 
             echo "🌐 Ensuring network exists..."
             docker network create ecommerce-net || true
@@ -84,7 +86,6 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
-            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
             echo "🚀 Starting backend services..."
 
@@ -116,12 +117,4 @@ jobs:
               --restart unless-stopped \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "🌐 Starting nginx..."
-            docker run -d \
-              --name nginx \
-              --network ecommerce-net \
-              -p 80:80 \
-              --restart unless-stopped \
-              ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
-
-            echo "✅ DEPLOYMENT DONE"
+            echo "✅ DEPLOYMENT COMPLETE"
