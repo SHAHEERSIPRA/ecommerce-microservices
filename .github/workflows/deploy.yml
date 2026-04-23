@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy (Optimized Stable)
+name: CI/CD Pipeline - Azure VM Deploy (Stable Fixed)
 
 on:
   push:
@@ -25,39 +25,25 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # =========================
-      # Build Images (CACHE ENABLED FOR SPEED)
+      # Build Images
       # =========================
       - name: Build Docker Images
         run: |
-          echo "🔨 Building backend services..."
-
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
-
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
-
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
-
-          echo "🔨 Building frontend..."
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
           docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
             --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
 
-          echo "🔨 Building NGINX..."
-
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest ./nginx
 
       # =========================
       # Push Images
       # =========================
-      - name: Push Docker Images
+      - name: Push Images
         run: |
-          echo "📤 Pushing images to ACR..."
-
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
@@ -65,9 +51,9 @@ jobs:
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
       # =========================
-      # Deploy to Azure VM
+      # Deploy to VM
       # =========================
-      - name: Deploy to Azure VM via SSH
+      - name: Deploy to Azure VM
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
@@ -76,21 +62,21 @@ jobs:
           script: |
             set -e
 
-            echo "🔐 Login to ACR..."
+            echo "🔐 Login to ACR"
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Removing old containers only (SAFE)"
+            echo "🧹 Cleaning old containers..."
+            docker rm -f nginx frontend user-service product-service order-service mongo || true
 
-            docker rm -f user-service product-service order-service frontend nginx mongo || true
-
-            echo "🌐 Creating network..."
+            echo "🌐 Ensuring network exists..."
             docker network create ecommerce-net || true
 
             echo "📦 Starting MongoDB..."
             docker run -d \
               --name mongo \
               --network ecommerce-net \
+              --restart unless-stopped \
               mongo:7
 
             echo "⬇️ Pulling images..."
@@ -100,39 +86,42 @@ jobs:
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
             docker pull ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "🚀 Starting backend services"
+            echo "🚀 Starting backend services..."
 
             docker run -d \
               --name user-service \
               --network ecommerce-net \
+              --restart unless-stopped \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
             docker run -d \
               --name product-service \
               --network ecommerce-net \
+              --restart unless-stopped \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
             docker run -d \
               --name order-service \
               --network ecommerce-net \
+              --restart unless-stopped \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            echo "🚀 Starting frontend"
-
+            echo "🚀 Starting frontend..."
             docker run -d \
               --name frontend \
               --network ecommerce-net \
+              --restart unless-stopped \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "🌐 Starting NGINX (ENTRY POINT)"
-
+            echo "🌐 Starting nginx..."
             docker run -d \
               --name nginx \
               --network ecommerce-net \
               -p 80:80 \
+              --restart unless-stopped \
               ${{ secrets.ACR_LOGIN_SERVER }}/nginx:latest
 
-            echo "✅ Deployment SUCCESS!"
+            echo "✅ DEPLOYMENT DONE"
