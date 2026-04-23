@@ -1,25 +1,16 @@
 services:
-  # ─── MongoDB ─────────────────────────────────────────────
   mongo:
     image: mongo:7
-    container_name: ecs-mongo
+    container_name: mongo
     ports:
       - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
     networks:
-      - ecs-network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      - ecommerce-net
+    restart: unless-stopped
 
-  # ─── User Microservice ──────────────────────────────────
   user-service:
     build: ./user-service
-    container_name: ecs-user-service
+    container_name: user-service
     ports:
       - "4001:4001"
     environment:
@@ -27,16 +18,14 @@ services:
       - MONGO_URI=mongodb://mongo:27017/userdb
       - ORDER_SERVICE_URL=http://order-service:4003
     depends_on:
-      mongo:
-        condition: service_healthy
+      - mongo
     networks:
-      - ecs-network
+      - ecommerce-net
     restart: unless-stopped
 
-  # ─── Product Microservice ───────────────────────────────
   product-service:
     build: ./product-service
-    container_name: ecs-product-service
+    container_name: product-service
     ports:
       - "4002:4002"
     environment:
@@ -44,16 +33,14 @@ services:
       - MONGO_URI=mongodb://mongo:27017/productdb
       - ORDER_SERVICE_URL=http://order-service:4003
     depends_on:
-      mongo:
-        condition: service_healthy
+      - mongo
     networks:
-      - ecs-network
+      - ecommerce-net
     restart: unless-stopped
 
-  # ─── Order Microservice ─────────────────────────────────
   order-service:
     build: ./order-service
-    container_name: ecs-order-service
+    container_name: order-service
     ports:
       - "4003:4003"
     environment:
@@ -62,21 +49,17 @@ services:
       - USER_SERVICE_URL=http://user-service:4001
       - PRODUCT_SERVICE_URL=http://product-service:4002
     depends_on:
-      mongo:
-        condition: service_healthy
+      - mongo
     networks:
-      - ecs-network
+      - ecommerce-net
     restart: unless-stopped
 
-  # ─── Next.js Frontend (calls services directly — no API Gateway) ─
   frontend:
     build:
       context: ./frontend
       args:
-        - NEXT_PUBLIC_USER_SERVICE_URL=http://localhost:4001
-        - NEXT_PUBLIC_PRODUCT_SERVICE_URL=http://localhost:4002
-        - NEXT_PUBLIC_ORDER_SERVICE_URL=http://localhost:4003
-    container_name: ecs-frontend
+        - NEXT_PUBLIC_API_BASE_URL=http://mydashboardnew.duckdns.org
+    container_name: frontend
     ports:
       - "3000:3000"
     depends_on:
@@ -84,12 +67,9 @@ services:
       - product-service
       - order-service
     networks:
-      - ecs-network
+      - ecommerce-net
     restart: unless-stopped
 
-volumes:
-  mongo-data:
-
 networks:
-  ecs-network:
+  ecommerce-net:
     driver: bridge
