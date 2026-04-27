@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy (Stable Fixed)
+name: CI/CD Pipeline - Azure VM Deploy (FINAL FIXED)
 
 on:
   push:
@@ -10,51 +10,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # =========================
-      # Checkout Code
-      # =========================
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # =========================
-      # Login to ACR
-      # =========================
-      - name: Login to Azure Container Registry
+      - name: Login to ACR
         run: |
           echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
 
-      # =========================
-      # Build Images
-      # =========================
       - name: Build Docker Images
         run: |
-          echo "🔨 Building backend services..."
-
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
 
-          echo "🔨 Building frontend..."
           docker build \
             -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
             --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
 
-      # =========================
-      # Push Images
-      # =========================
       - name: Push Images
         run: |
-          echo "📤 Pushing images..."
-
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-      # =========================
-      # Deploy to Azure VM
-      # =========================
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -71,50 +51,43 @@ jobs:
             echo "🧹 Removing old containers..."
             docker rm -f frontend user-service product-service order-service mongo || true
 
-            echo "🌐 Ensuring network exists..."
+            echo "🌐 Network..."
             docker network create ecommerce-net || true
 
-            echo "📦 Starting MongoDB..."
+            echo "📦 Mongo..."
             docker run -d \
               --name mongo \
               --network ecommerce-net \
-              --restart unless-stopped \
+              -p 27017:27017 \
               mongo:7
 
-            echo "⬇️ Pulling images..."
-            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
-            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
-            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
-            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
-
-            echo "🚀 Starting backend services..."
-
+            echo "🚀 Backend..."
             docker run -d \
               --name user-service \
               --network ecommerce-net \
-              --restart unless-stopped \
+              -p 4001:4001 \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
             docker run -d \
               --name product-service \
               --network ecommerce-net \
-              --restart unless-stopped \
+              -p 4002:4002 \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
             docker run -d \
               --name order-service \
               --network ecommerce-net \
-              --restart unless-stopped \
+              -p 4003:4003 \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            echo "🚀 Starting frontend..."
+            echo "🚀 Frontend..."
             docker run -d \
               --name frontend \
               --network ecommerce-net \
-              --restart unless-stopped \
+              -p 3000:3000 \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "✅ DEPLOYMENT COMPLETE"
+            echo "✅ DONE"
