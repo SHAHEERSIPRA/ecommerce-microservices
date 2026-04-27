@@ -1,64 +1,140 @@
 import axios from 'axios';
 
+// =========================
+// SINGLE API GATEWAY (NGINX)
+// =========================
+
+// FIX 1: ALWAYS HTTPS in production (no HTTP fallback)
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'https://mydashboardnew.duckdns.org';
+  'https://mydashboardnew.duckdns.org/api';
 
-// NEVER allow undefined anywhere
-const safeBase = API_BASE || 'https://mydashboardnew.duckdns.org';
+// Helper: normalize URL (removes trailing slash issues)
+const clean = (url) => (url ? url.replace(/\/$/, '') : url);
 
-const api = axios.create({
-  baseURL: safeBase,
+// =========================
+// AXIOS INSTANCES
+// =========================
+const userApi = axios.create({
+  baseURL: clean(`${API_BASE}/users`),
 });
 
-// ── SAFE HELPERS ──
-const safeEntries = (obj) => Object.entries(obj || {});
+const productApi = axios.create({
+  baseURL: clean(`${API_BASE}/products`),
+});
 
-// ── HEALTH ──
+const orderApi = axios.create({
+  baseURL: clean(`${API_BASE}/orders`),
+});
+
+// =========================
+// SERVICES MAP
+// =========================
+export const SERVICES = {
+  'user-service': clean(`${API_BASE}/users`),
+  'product-service': clean(`${API_BASE}/products`),
+  'order-service': clean(`${API_BASE}/orders`),
+};
+
+// =========================
+// HEALTH CHECK
+// =========================
 export const getServicesHealth = async () => {
-  try {
-    const res = await api.get('/api/health');
-    return res.data;
-  } catch (err) {
-    return { status: 'error', message: err.message };
+  const results = {};
+
+  for (const [name, url] of Object.entries(SERVICES || {})) {
+    try {
+      const res = await axios.get(`${clean(url)}/health`, {
+        timeout: 3000,
+      });
+
+      results[name] = {
+        status: 'healthy',
+        data: res.data || {}, // FIX 2: null safety
+      };
+    } catch (err) {
+      results[name] = {
+        status: 'unhealthy',
+        error: err.message,
+      };
+    }
   }
+
+  return results;
 };
 
-// ── TRAFFIC ──
+// =========================
+// TRAFFIC
+// =========================
 export const getTraffic = async () => {
-  try {
-    const res = await api.get('/api/traffic');
-    return res.data || [];
-  } catch {
-    return [];
+  const all = [];
+
+  for (const [, url] of Object.entries(SERVICES || {})) {
+    try {
+      const res = await axios.get(`${clean(url)}/traffic`, {
+        timeout: 3000,
+      });
+
+      // FIX 3: safe fallback for null/undefined
+      all.push(...(res.data || []));
+    } catch (e) {
+      // ignore service failures
+    }
+  }
+
+  const seen = new Set();
+
+  return all
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .filter((entry) => {
+      if (!entry?.id) return false;
+      if (seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    });
+};
+
+// =========================
+// CLEAR TRAFFIC
+// =========================
+export const clearTraffic = async () => {
+  for (const url of Object.values(SERVICES || {})) {
+    try {
+      await axios.delete(`${clean(url)}/traffic`, {
+        timeout: 3000,
+      });
+    } catch (e) {
+      // ignore
+    }
   }
 };
 
-export const clearTraffic = async () => {
-  try {
-    await api.delete('/api/traffic');
-  } catch {}
-};
+// =========================
+// USERS
+// =========================
+export const getUsers = () => userApi.get('');
+export const getUser = (id) => userApi.get(`/${id}`);
+export const getUserProfile = (id) => userApi.get(`/${id}/profile`);
+export const createUser = (data) => userApi.post('', data);
+export const updateUser = (id, data) => userApi.put(`/${id}`, data);
+export const deleteUser = (id) => userApi.delete(`/${id}`);
 
-// ── USERS ──
-export const getUsers = () => api.get('/api/users');
-export const getUser = (id) => api.get(`/api/users/${id}`);
-export const getUserProfile = (id) => api.get(`/api/users/${id}/profile`);
-export const createUser = (data) => api.post('/api/users', data);
-export const updateUser = (id, data) => api.put(`/api/users/${id}`, data);
-export const deleteUser = (id) => api.delete(`/api/users/${id}`);
+// =========================
+// PRODUCTS
+// =========================
+export const getProducts = () => productApi.get('');
+export const getProduct = (id) => productApi.get(`/${id}`);
+export const getProductStats = (id) => productApi.get(`/${id}/stats`);
+export const createProduct = (data) => productApi.post('', data);
+export const updateProduct = (id, data) => productApi.put(`/${id}`, data);
+export const deleteProduct = (id) => productApi.delete(`/${id}`);
 
-// ── PRODUCTS ──
-export const getProducts = () => api.get('/api/products');
-export const getProduct = (id) => api.get(`/api/products/${id}`);
-export const getProductStats = (id) => api.get(`/api/products/${id}/stats`);
-export const createProduct = (data) => api.post('/api/products', data);
-export const updateProduct = (id, data) => api.put(`/api/products/${id}`, data);
-export const deleteProduct = (id) => api.delete(`/api/products/${id}`);
-
-// ── ORDERS ──
-export const getOrders = () => api.get('/api/orders');
-export const getOrder = (id) => api.get(`/api/orders/${id}`);
-export const createOrder = (data) => api.post('/api/orders', data);
+// =========================
+// ORDERS
+// =========================
+export const getOrders = () => orderApi.get('');
+export const getOrder = (id) => orderApi.get(`/${id}`);
+export const createOrder = (data) => orderApi.post('', data);
 export const updateOrderStatus = (id, status) =>
-  api.put(`/api/orders/${id}/status`, { status });
+  orderApi.put(`/${id}/status`, { status });
