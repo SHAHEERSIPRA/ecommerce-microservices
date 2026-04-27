@@ -4,12 +4,17 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   'https://mydashboardnew.duckdns.org';
 
-// single API instance
+// NEVER allow undefined anywhere
+const safeBase = API_BASE || 'https://mydashboardnew.duckdns.org';
+
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: safeBase,
 });
 
-// ── Health ──
+// ── SAFE HELPERS ──
+const safeEntries = (obj) => Object.entries(obj || {});
+
+// ── HEALTH ──
 export const getServicesHealth = async () => {
   try {
     const res = await api.get('/api/health');
@@ -19,11 +24,11 @@ export const getServicesHealth = async () => {
   }
 };
 
-// ── Traffic ──
+// ── TRAFFIC ──
 export const getTraffic = async () => {
   try {
     const res = await api.get('/api/traffic');
-    return res.data;
+    return res.data || [];
   } catch {
     return [];
   }
