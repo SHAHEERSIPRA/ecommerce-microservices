@@ -5,9 +5,11 @@ import axios from 'axios';
 // =========================
 
 // FIX 1: ALWAYS HTTPS in production (no HTTP fallback)
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'https://mydashboardnew.duckdns.org/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+if (!API_BASE) {
+  throw new Error("NEXT_PUBLIC_API_BASE_URL is not defined");
+}
 
 // Helper: normalize URL (removes trailing slash issues)
 const clean = (url) => (url ? url.replace(/\/$/, '') : url);
