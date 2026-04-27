@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Azure VM Deploy (FINAL FIXED)
+name: CI/CD Pipeline - Azure VM Deploy
 
 on:
   push:
@@ -20,13 +20,25 @@ jobs:
 
       - name: Build Docker Images
         run: |
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest ./user-service
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest ./product-service
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest ./order-service
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest \
+            ./user-service
 
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend \
-            --build-arg NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest \
+            ./product-service
+
+          docker build --no-cache \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest \
+            ./order-service
+
+          # NEXT_PUBLIC_* must be hardcoded here — not from a secret.
+          # Secrets are for passwords. This URL is not a secret.
+          # It must be a literal string so Docker bakes it into the JS bundle.
+          docker build --no-cache \
+            --build-arg NEXT_PUBLIC_API_BASE_URL=https://mydashboardnew.duckdns.org/api \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest \
+            ./frontend
 
       - name: Push Images
         run: |
@@ -44,50 +56,62 @@ jobs:
           script: |
             set -e
 
-            echo "🔐 Login to ACR..."
+            echo "Login to ACR..."
             echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
               -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-            echo "🧹 Removing old containers..."
+            echo "Removing old containers..."
             docker rm -f frontend user-service product-service order-service mongo || true
 
-            echo "🌐 Network..."
+            echo "Creating network..."
             docker network create ecommerce-net || true
 
-            echo "📦 Mongo..."
+            echo "Starting MongoDB (internal only — no public port)..."
             docker run -d \
               --name mongo \
               --network ecommerce-net \
-              -p 27017:27017 \
               mongo:7
 
-            echo "🚀 Backend..."
+            echo "Starting user-service..."
             docker run -d \
               --name user-service \
               --network ecommerce-net \
               -p 4001:4001 \
               -e MONGO_URI=mongodb://mongo:27017/userdb \
+              -e NODE_ENV=production \
               ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
 
+            echo "Starting product-service..."
             docker run -d \
               --name product-service \
               --network ecommerce-net \
               -p 4002:4002 \
               -e MONGO_URI=mongodb://mongo:27017/productdb \
+              -e NODE_ENV=production \
               ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
+            echo "Starting order-service..."
             docker run -d \
               --name order-service \
               --network ecommerce-net \
               -p 4003:4003 \
               -e MONGO_URI=mongodb://mongo:27017/orderdb \
+              -e NODE_ENV=production \
               ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
-            echo "🚀 Frontend..."
+            echo "Starting frontend..."
             docker run -d \
               --name frontend \
               --network ecommerce-net \
               -p 3000:3000 \
+              -e NODE_ENV=production \
+              -e NEXT_PUBLIC_API_BASE_URL=https://mydashboardnew.duckdns.org/api \
               ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
 
-            echo "✅ DONE"
+            echo "Pulling latest images first..."
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/user-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+            docker pull ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+
+            echo "Done."
