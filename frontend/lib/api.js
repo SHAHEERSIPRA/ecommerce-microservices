@@ -115,28 +115,28 @@ export const clearTraffic = async () => {
 // =========================
 // USERS
 // =========================
-export const getUsers = () => userApi.get('/users');
-export const getUser = (id) => userApi.get(`/users/${id}`);
-export const getUserProfile = (id) => userApi.get(`/users/${id}/profile`);
-export const createUser = (data) => userApi.post('/users', data);
-export const updateUser = (id, data) => userApi.put(`/users/${id}`, data);
-export const deleteUser = (id) => userApi.delete(`/users/${id}`);
+export const getUsers = () => userApi.get('/api/users');
+export const getUser = (id) => userApi.get(`/api/users/${id}`);
+export const getUserProfile = (id) => userApi.get(`/api/users/${id}/profile`);
+export const createUser = (data) => userApi.post('/api/users', data);
+export const updateUser = (id, data) => userApi.put(`/api/users/${id}`, data);
+export const deleteUser = (id) => userApi.delete(`/api/users/${id}`);
 
 // =========================
 // PRODUCTS
 // =========================
-export const getProducts = () => productApi.get('/products');
-export const getProduct = (id) => productApi.get(`/products/${id}`);
-export const getProductStats = (id) => productApi.get(`/products/${id}/stats`);
-export const createProduct = (data) => productApi.post('/products', data);
-export const updateProduct = (id, data) => productApi.put(`/products/${id}`, data);
-export const deleteProduct = (id) => productApi.delete(`/products/${id}`);
+export const getProducts = () => productApi.get('/api/products');
+export const getProduct = (id) => productApi.get(`/api/products/${id}`);
+export const getProductStats = (id) => productApi.get(`/api/products/${id}/stats`);
+export const createProduct = (data) => productApi.post('/api/products', data);
+export const updateProduct = (id, data) => productApi.put(`/api/products/${id}`, data);
+export const deleteProduct = (id) => productApi.delete(`/api/products/${id}`);
 
 // =========================
 // ORDERS
 // =========================
-export const getOrders = () => orderApi.get('/orders');
-export const getOrder = (id) => orderApi.get(`/orders/${id}`);
-export const createOrder = (data) => orderApi.post('/orders', data);
+export const getOrders = () => orderApi.get('/api/orders');
+export const getOrder = (id) => orderApi.get(`/api/orders/${id}`);
+export const createOrder = (data) => orderApi.post('/api/orders', data);
 export const updateOrderStatus = (id, status) =>
-  orderApi.put(`/orders/${id}/status`, { status });
+  orderApi.put(`/api/orders/${id}/status`, { status });
